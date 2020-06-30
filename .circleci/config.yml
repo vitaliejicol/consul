@@ -574,25 +574,25 @@ jobs:
       - store_artifacts:
           path: *TEST_RESULTS_DIR
 
-  envoy-integration-test-1.12.4:
+  envoy-integration-test-1.12.5:
     docker:
       - image: *GOLANG_IMAGE
     environment:
-      ENVOY_VERSION: "1.12.4"
+      ENVOY_VERSION: "1.12.5"
     steps: *ENVOY_INTEGRATION_TEST_STEPS
 
-  envoy-integration-test-1.13.2:
+  envoy-integration-test-1.13.3:
     docker:
       - image: *GOLANG_IMAGE
     environment:
-      ENVOY_VERSION: "1.13.2"
+      ENVOY_VERSION: "1.13.3"
     steps: *ENVOY_INTEGRATION_TEST_STEPS
 
-  envoy-integration-test-1.14.2:
+  envoy-integration-test-1.14.3:
     docker:
       - image: *GOLANG_IMAGE
     environment:
-      ENVOY_VERSION: "1.14.2"
+      ENVOY_VERSION: "1.14.3"
     steps: *ENVOY_INTEGRATION_TEST_STEPS
 
   # run integration tests for the connect ca providers
@@ -609,7 +609,7 @@ jobs:
             sudo unzip -d /usr/local/bin /tmp/vault.zip
             rm -rf /tmp/vault*
       - checkout
-      - run: go mod download
+      - run: go mod download 
       - run:
           name: go test
           command: |
@@ -706,13 +706,13 @@ workflows:
       - envoy-integration-test-1.11.2:
           requires:
             - dev-build
-      - envoy-integration-test-1.12.4:
+      - envoy-integration-test-1.12.5:
           requires:
             - dev-build
-      - envoy-integration-test-1.13.2:
+      - envoy-integration-test-1.13.3:
           requires:
             - dev-build
-      - envoy-integration-test-1.14.2:
+      - envoy-integration-test-1.14.3:
           requires:
             - dev-build
 
