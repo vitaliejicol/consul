@@ -17,6 +17,7 @@ import (
 const metaExternalSource = "external-source"
 
 type GatewayConfig struct {
+	AssociatedServicesCount int `json:",omitempty"`
 	Addresses []string `json:",omitempty"`
 	// internal to track uniqueness
 	addressesSet map[string]struct{}
@@ -240,7 +241,8 @@ func summarizeServices(dump structs.ServiceDump, cfg *config.RuntimeConfig) []*S
 		sum.Nodes = append(sum.Nodes, csn.Node.Node)
 		sum.Kind = svc.Kind
 		sum.InstanceCount += 1
-		if svc.Kind == structs.ServiceKindConnectProxy {
+		switch svc.Kind {
+			case structs.ServiceKindConnectProxy:
 			if _, ok := sum.proxyForSet[svc.Proxy.DestinationServiceName]; !ok {
 				if sum.proxyForSet == nil {
 					sum.proxyForSet = make(map[string]struct{})
@@ -248,7 +250,13 @@ func summarizeServices(dump structs.ServiceDump, cfg *config.RuntimeConfig) []*S
 				sum.proxyForSet[svc.Proxy.DestinationServiceName] = struct{}{}
 				sum.ProxyFor = append(sum.ProxyFor, svc.Proxy.DestinationServiceName)
 			}
+		case structs.ServiceKindIngressGateway:
+			fallthrough
+		case structs.ServiceKindTerminatingGateway:
+			sum.GatewayConfig.AssociatedServicesCount = len(csn.Service.GatewayConfig)
+		default:
 		}
+
 		for _, tag := range svc.Tags {
 			found := false
 			for _, existing := range sum.Tags {

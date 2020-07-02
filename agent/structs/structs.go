@@ -779,6 +779,7 @@ type ServiceNode struct {
 	ServiceEnableTagOverride bool
 	ServiceProxy             ConnectProxyConfig
 	ServiceConnect           ServiceConnect
+	ServiceGatewayConfig     GatewayServices `json:"-"`
 
 	EnterpriseMeta `hcl:",squash" mapstructure:",squash" bexpr:"-"`
 
@@ -820,6 +821,7 @@ func (s *ServiceNode) PartialClone() *ServiceNode {
 		ServiceEnableTagOverride: s.ServiceEnableTagOverride,
 		ServiceProxy:             s.ServiceProxy,
 		ServiceConnect:           s.ServiceConnect,
+		// Skip ServiceGatewayConfig, see above.
 		RaftIndex: RaftIndex{
 			CreateIndex: s.CreateIndex,
 			ModifyIndex: s.ModifyIndex,
@@ -843,6 +845,7 @@ func (s *ServiceNode) ToNodeService() *NodeService {
 		EnableTagOverride: s.ServiceEnableTagOverride,
 		Proxy:             s.ServiceProxy,
 		Connect:           s.ServiceConnect,
+		GatewayConfig:     s.ServiceGatewayConfig,
 		EnterpriseMeta:    s.EnterpriseMeta,
 		RaftIndex: RaftIndex{
 			CreateIndex: s.CreateIndex,
@@ -977,6 +980,9 @@ type NodeService struct {
 	// include it but this is a safety net incase we change that or there is
 	// somewhere this is used in API output.
 	LocallyRegisteredAsSidecar bool `json:"-" bexpr:"-"`
+
+	// GatewayConfig ...
+	GatewayConfig GatewayServices `json:"-" bexpr:"-"`
 
 	EnterpriseMeta `hcl:",squash" mapstructure:",squash" bexpr:"-"`
 
