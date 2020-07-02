@@ -273,10 +273,12 @@ type Agent struct {
 	// dnsServer provides the DNS API
 	dnsServers []*DNSServer
 
-	// httpServers provides the HTTP API on various endpoints
-	httpServers []*HTTPServer
+	// apiServers listening for connections. If any of these server goroutines
+	// fail, the agent will be shutdown.
+	apiServers *apiServers
 
 	// wgServers is the wait group for all HTTP and DNS servers
+	// TODO: remove once dnsServers are handled by apiServers
 	wgServers sync.WaitGroup
 
 	// watchPlans tracks all the currently-running watch plans for the
@@ -536,6 +538,8 @@ func New(options ...AgentOption) (*Agent, error) {
 	}
 
 	a.autoConf = ac
+
+	a.apiServers = NewAPIServers(a.logger)
 
 	return &a, nil
 }
@@ -805,10 +809,7 @@ func (a *Agent) Start(ctx context.Context) error {
 
 	// Start HTTP and HTTPS servers.
 	for _, srv := range servers {
-		if err := a.serveHTTP(srv); err != nil {
-			return err
-		}
-		a.httpServers = append(a.httpServers, srv)
+		a.apiServers.Start(srv)
 	}
 
 	// Start gRPC server.
@@ -828,6 +829,12 @@ func (a *Agent) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// Failed returns a channel which is closed when the first server goroutine exits
+// with a non-nil error.
+func (a *Agent) Failed() <-chan struct{} {
+	return a.apiServers.failed
 }
 
 func (a *Agent) setupClientAutoEncrypt(ctx context.Context) (*structs.SignedResponse, error) {
@@ -1134,14 +1141,16 @@ func (a *Agent) startListeners(addrs []net.Addr) ([]net.Listener, error) {
 //
 // This approach should ultimately be refactored to the point where we just
 // start the server and any error should trigger a proper shutdown of the agent.
-func (a *Agent) listenHTTP() ([]*HTTPServer, error) {
+func (a *Agent) listenHTTP() ([]apiServer, error) {
 	var ln []net.Listener
-	var servers []*HTTPServer
+	var servers []apiServer
+
 	start := func(proto string, addrs []net.Addr) error {
 		listeners, err := a.startListeners(addrs)
 		if err != nil {
 			return err
 		}
+		ln = append(ln, listeners...)
 
 		for _, l := range listeners {
 			var tlscfg *tls.Config
@@ -1151,18 +1160,15 @@ func (a *Agent) listenHTTP() ([]*HTTPServer, error) {
 				l = tls.NewListener(l, tlscfg)
 			}
 
+			srv := &HTTPServer{
+				agent:    a,
+				denylist: NewDenylist(a.config.HTTPBlockEndpoints),
+			}
 			httpServer := &http.Server{
 				Addr:      l.Addr().String(),
 				TLSConfig: tlscfg,
+				Handler:   srv.handler(a.config.EnableDebug),
 			}
-			srv := &HTTPServer{
-				Server:   httpServer,
-				ln:       l,
-				agent:    a,
-				denylist: NewDenylist(a.config.HTTPBlockEndpoints),
-				proto:    proto,
-			}
-			httpServer.Handler = srv.handler(a.config.EnableDebug)
 
 			// Load the connlimit helper into the server
 			connLimitFn := a.httpConnLimiter.HTTPConnStateFunc()
@@ -1175,25 +1181,37 @@ func (a *Agent) listenHTTP() ([]*HTTPServer, error) {
 				httpServer.ConnState = connLimitFn
 			}
 
-			ln = append(ln, l)
-			servers = append(servers, srv)
+			servers = append(servers, apiServer{
+				Protocol: proto,
+				Addr:     l.Addr(),
+				Shutdown: httpServer.Shutdown,
+				Run: func() error {
+					err := httpServer.Serve(l)
+					if err == nil || err == http.ErrServerClosed {
+						return nil
+					}
+					return fmt.Errorf("%s server %s failed: %w", proto, l.Addr(), err)
+				},
+			})
 		}
 		return nil
 	}
 
 	if err := start("http", a.config.HTTPAddrs); err != nil {
-		for _, l := range ln {
-			l.Close()
-		}
+		closeListeners(ln)
 		return nil, err
 	}
 	if err := start("https", a.config.HTTPSAddrs); err != nil {
-		for _, l := range ln {
-			l.Close()
-		}
+		closeListeners(ln)
 		return nil, err
 	}
 	return servers, nil
+}
+
+func closeListeners(lns []net.Listener) {
+	for _, l := range lns {
+		l.Close()
+	}
 }
 
 // setupHTTPServer adds HTTP/2 support, ConnState, and a connection handshake timeout
@@ -1255,43 +1273,6 @@ func (a *Agent) listenSocket(path string) (net.Listener, error) {
 		return nil, fmt.Errorf("Failed setting up socket: %s", err)
 	}
 	return l, nil
-}
-
-func (a *Agent) serveHTTP(srv *HTTPServer) error {
-	// https://github.com/golang/go/issues/20239
-	//
-	// In go.8.1 there is a race between Serve and Shutdown. If
-	// Shutdown is called before the Serve go routine was scheduled then
-	// the Serve go routine never returns. This deadlocks the agent
-	// shutdown for some tests since it will wait forever.
-	notif := make(chan net.Addr)
-	a.wgServers.Add(1)
-	go func() {
-		defer a.wgServers.Done()
-		notif <- srv.ln.Addr()
-		err := srv.Server.Serve(srv.ln)
-		if err != nil && err != http.ErrServerClosed {
-			a.logger.Error("error closing server", "error", err)
-		}
-	}()
-
-	select {
-	case addr := <-notif:
-		if srv.proto == "https" {
-			a.logger.Info("Started HTTPS server",
-				"address", addr.String(),
-				"network", addr.Network(),
-			)
-		} else {
-			a.logger.Info("Started HTTP server",
-				"address", addr.String(),
-				"network", addr.Network(),
-			)
-		}
-		return nil
-	case <-time.After(time.Second):
-		return fmt.Errorf("agent: timeout starting HTTP servers")
-	}
 }
 
 // stopAllWatches stops all the currently running watches
@@ -2089,13 +2070,12 @@ func (a *Agent) ShutdownAgent() error {
 
 // ShutdownEndpoints terminates the HTTP and DNS servers. Should be
 // preceded by ShutdownAgent.
+// TODO: remove this method, move to ShutdownAgent
 func (a *Agent) ShutdownEndpoints() {
 	a.shutdownLock.Lock()
 	defer a.shutdownLock.Unlock()
 
-	if len(a.dnsServers) == 0 && len(a.httpServers) == 0 {
-		return
-	}
+	ctx := context.TODO()
 
 	for _, srv := range a.dnsServers {
 		if srv.Server != nil {
@@ -2109,27 +2089,12 @@ func (a *Agent) ShutdownEndpoints() {
 	}
 	a.dnsServers = nil
 
-	for _, srv := range a.httpServers {
-		a.logger.Info("Stopping server",
-			"protocol", strings.ToUpper(srv.proto),
-			"address", srv.ln.Addr().String(),
-			"network", srv.ln.Addr().Network(),
-		)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		srv.Server.Shutdown(ctx)
-		if ctx.Err() == context.DeadlineExceeded {
-			a.logger.Warn("Timeout stopping server",
-				"protocol", strings.ToUpper(srv.proto),
-				"address", srv.ln.Addr().String(),
-				"network", srv.ln.Addr().Network(),
-			)
-		}
-	}
-	a.httpServers = nil
-
+	a.apiServers.Shutdown(ctx)
 	a.logger.Info("Waiting for endpoints to shut down")
-	a.wgServers.Wait()
+	err := a.apiServers.WaitForShutdown()
+	if err != nil {
+		a.logger.Error(err.Error())
+	}
 	a.logger.Info("Endpoints down")
 }
 
