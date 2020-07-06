@@ -38,15 +38,23 @@ func (c *CatalogListServices) Fetch(opts cache.FetchOptions, req cache.Request) 
 	// going to be served from cache and end up arbitrarily stale anyway. This
 	// allows cached service-discover to automatically read scale across all
 	// servers too.
-	reqReal.AllowStale = true
+	reqReal.QueryOptions.AllowStale = true
 
-	// Fetch
+	if opts.LastResult != nil {
+		reqReal.QueryOptions.AllowNotModifiedResponse = true
+	}
+
 	var reply structs.IndexedServices
 	if err := c.RPC.RPC("Catalog.ListServices", reqReal, &reply); err != nil {
 		return result, err
 	}
 
-	result.Value = &reply
 	result.Index = reply.QueryMeta.Index
+
+	if reply.QueryMeta.NotModified {
+		result.Value = opts.LastResult.Value
+		return result, nil
+	}
+	result.Value = &reply
 	return result, nil
 }
