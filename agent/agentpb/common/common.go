@@ -1,4 +1,4 @@
-package agentpb
+package common
 
 import (
 	"time"

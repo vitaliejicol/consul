@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hashicorp/consul/agent/agentpb"
+	pbacl "github.com/hashicorp/consul/agent/agentpb/acl"
 	"github.com/hashicorp/consul/agent/structs"
 	memdb "github.com/hashicorp/go-memdb"
 )
@@ -339,7 +339,7 @@ func (s *Store) CanBootstrapACLToken() (bool, uint64, error) {
 // to update the name. Unlike the older functions to operate specifically on role or policy links
 // this function does not itself handle the case where the id cannot be found. Instead the
 // getName function should handle that and return an error if necessary
-func (s *Store) resolveACLLinks(tx *txn, links []agentpb.ACLLink, getName func(*txn, string) (string, error)) (int, error) {
+func (s *Store) resolveACLLinks(tx *txn, links []pbacl.ACLLink, getName func(*txn, string) (string, error)) (int, error) {
 	var numValid int
 	for linkIndex, link := range links {
 		if link.ID != "" {
@@ -365,12 +365,12 @@ func (s *Store) resolveACLLinks(tx *txn, links []agentpb.ACLLink, getName func(*
 // associated with the ID of the link. Ideally this will be a no-op if the names are already correct
 // however if a linked resource was renamed it might be stale. This function will treat the incoming
 // links with copy-on-write semantics and its output will indicate whether any modifications were made.
-func (s *Store) fixupACLLinks(tx *txn, original []agentpb.ACLLink, getName func(*txn, string) (string, error)) ([]agentpb.ACLLink, bool, error) {
+func (s *Store) fixupACLLinks(tx *txn, original []pbacl.ACLLink, getName func(*txn, string) (string, error)) ([]pbacl.ACLLink, bool, error) {
 	owned := false
 	links := original
 
-	cloneLinks := func(l []agentpb.ACLLink, copyNumLinks int) []agentpb.ACLLink {
-		clone := make([]agentpb.ACLLink, copyNumLinks)
+	cloneLinks := func(l []pbacl.ACLLink, copyNumLinks int) []pbacl.ACLLink {
+		clone := make([]pbacl.ACLLink, copyNumLinks)
 		copy(clone, l[:copyNumLinks])
 		return clone
 	}
@@ -396,7 +396,7 @@ func (s *Store) fixupACLLinks(tx *txn, original []agentpb.ACLLink, getName func(
 			}
 
 			// append the corrected link
-			links = append(links, agentpb.ACLLink{ID: link.ID, Name: name})
+			links = append(links, pbacl.ACLLink{ID: link.ID, Name: name})
 		} else if owned {
 			links = append(links, link)
 		}
