@@ -779,7 +779,6 @@ type ServiceNode struct {
 	ServiceEnableTagOverride bool
 	ServiceProxy             ConnectProxyConfig
 	ServiceConnect           ServiceConnect
-	ServiceGatewayConfig     GatewayServices `json:"-"`
 
 	EnterpriseMeta `hcl:",squash" mapstructure:",squash" bexpr:"-"`
 
@@ -821,7 +820,6 @@ func (s *ServiceNode) PartialClone() *ServiceNode {
 		ServiceEnableTagOverride: s.ServiceEnableTagOverride,
 		ServiceProxy:             s.ServiceProxy,
 		ServiceConnect:           s.ServiceConnect,
-		// Skip ServiceGatewayConfig, see above.
 		RaftIndex: RaftIndex{
 			CreateIndex: s.CreateIndex,
 			ModifyIndex: s.ModifyIndex,
@@ -845,7 +843,6 @@ func (s *ServiceNode) ToNodeService() *NodeService {
 		EnableTagOverride: s.ServiceEnableTagOverride,
 		Proxy:             s.ServiceProxy,
 		Connect:           s.ServiceConnect,
-		GatewayConfig:     s.ServiceGatewayConfig,
 		EnterpriseMeta:    s.EnterpriseMeta,
 		RaftIndex: RaftIndex{
 			CreateIndex: s.CreateIndex,
@@ -980,9 +977,6 @@ type NodeService struct {
 	// include it but this is a safety net incase we change that or there is
 	// somewhere this is used in API output.
 	LocallyRegisteredAsSidecar bool `json:"-" bexpr:"-"`
-
-	// GatewayConfig ...
-	GatewayConfig GatewayServices `json:"-" bexpr:"-"`
 
 	EnterpriseMeta `hcl:",squash" mapstructure:",squash" bexpr:"-"`
 
@@ -1547,6 +1541,9 @@ type CheckServiceNode struct {
 	Node    *Node
 	Service *NodeService
 	Checks  HealthChecks
+
+	// GatewayServices ...
+	GatewayServices GatewayServices `json:"-" bexpr:"-"`
 }
 
 func (csn *CheckServiceNode) BestAddress(wan bool) (string, int) {
@@ -1584,10 +1581,10 @@ func (nodes CheckServiceNodes) ToServiceDump() ServiceDump {
 	var ret ServiceDump
 	for i := range nodes {
 		svc := ServiceInfo{
-			Node:           nodes[i].Node,
-			Service:        nodes[i].Service,
-			Checks:         nodes[i].Checks,
-			GatewayService: nil,
+			Node:            nodes[i].Node,
+			Service:         nodes[i].Service,
+			Checks:          nodes[i].Checks,
+			GatewayServices: nodes[i].GatewayServices,
 		}
 		ret = append(ret, &svc)
 	}
@@ -1658,10 +1655,10 @@ type NodeInfo struct {
 type NodeDump []*NodeInfo
 
 type ServiceInfo struct {
-	Node           *Node
-	Service        *NodeService
-	Checks         HealthChecks
-	GatewayService *GatewayService
+	Node            *Node
+	Service         *NodeService
+	Checks          HealthChecks
+	GatewayServices GatewayServices
 }
 
 type ServiceDump []*ServiceInfo

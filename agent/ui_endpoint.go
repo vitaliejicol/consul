@@ -17,8 +17,8 @@ import (
 const metaExternalSource = "external-source"
 
 type GatewayConfig struct {
-	AssociatedServicesCount int `json:",omitempty"`
-	Addresses []string `json:",omitempty"`
+	AssociatedServicesCount int      `json:",omitempty"`
+	Addresses               []string `json:",omitempty"`
 	// internal to track uniqueness
 	addressesSet map[string]struct{}
 }
@@ -224,8 +224,7 @@ func summarizeServices(dump structs.ServiceDump, cfg *config.RuntimeConfig) []*S
 	}
 
 	for _, csn := range dump {
-		if csn.GatewayService != nil {
-			gwsvc := csn.GatewayService
+		for _, gwsvc := range csn.GatewayServices {
 			sum := getService(gwsvc.Service.ToServiceID())
 			modifySummaryForGatewayService(cfg, sum, gwsvc)
 		}
@@ -242,7 +241,7 @@ func summarizeServices(dump structs.ServiceDump, cfg *config.RuntimeConfig) []*S
 		sum.Kind = svc.Kind
 		sum.InstanceCount += 1
 		switch svc.Kind {
-			case structs.ServiceKindConnectProxy:
+		case structs.ServiceKindConnectProxy:
 			if _, ok := sum.proxyForSet[svc.Proxy.DestinationServiceName]; !ok {
 				if sum.proxyForSet == nil {
 					sum.proxyForSet = make(map[string]struct{})
@@ -251,9 +250,9 @@ func summarizeServices(dump structs.ServiceDump, cfg *config.RuntimeConfig) []*S
 				sum.ProxyFor = append(sum.ProxyFor, svc.Proxy.DestinationServiceName)
 			}
 		case structs.ServiceKindIngressGateway:
-			fallthrough
+			sum.GatewayConfig.AssociatedServicesCount = len(csn.GatewayServices)
 		case structs.ServiceKindTerminatingGateway:
-			sum.GatewayConfig.AssociatedServicesCount = len(csn.Service.GatewayConfig)
+			sum.GatewayConfig.AssociatedServicesCount = len(csn.GatewayServices)
 		default:
 		}
 

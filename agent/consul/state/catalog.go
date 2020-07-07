@@ -2243,14 +2243,6 @@ func (s *Store) parseCheckServiceNodes(
 	}
 	allChecksCh := allChecks.WatchCh()
 
-	// We need a similar fallback for gateway-services.
-	allGatewayServices, err := tx.Get(gatewayServicesTableName, "id")
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed gateway-services lookup: %s", err)
-	}
-	allGatewayServicesCh := allGatewayServices.WatchCh()
-
-
 	results := make(structs.CheckServiceNodes, 0, len(services))
 	for _, sn := range services {
 		// Retrieve the node.
@@ -2286,22 +2278,6 @@ func (s *Store) parseCheckServiceNodes(
 		for check := iter.Next(); check != nil; check = iter.Next() {
 			checks = append(checks, check.(*structs.HealthCheck))
 		}
-
-		if sn.ServiceKind == structs.ServiceKindIngressGateway ||
-		sn.ServiceKind == structs.ServiceKindTerminatingGateway {
-			var gwsvcs structs.GatewayServices
-		// Now add the gateway-specific config.
-		iter, err = s.gatewayServices(tx, sn.ServiceName, &sn.EnterpriseMeta)
-		if err != nil {
-			return 0, nil, err
-		}
-		ws.AddWithLimit(watchLimit, iter.WatchCh(), allGatewayServicesCh)
-		for gws := iter.Next(); gws != nil; gws = iter.Next() {
-			gwsvcs = append(gwsvcs, gws.(*structs.GatewayService))
-		}
-
-		sn.ServiceGatewayConfig = gwsvcs
-	}
 
 		// Append to the results.
 		results = append(results, structs.CheckServiceNode{

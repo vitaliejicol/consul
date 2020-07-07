@@ -122,7 +122,22 @@ func (m *Internal) ServiceDump(args *structs.ServiceDumpRequest, reply *structs.
 				return err
 			}
 
-			reply.Nodes = raw.(structs.CheckServiceNodes)
+			nodes = raw.(structs.CheckServiceNodes)
+			for i, n := range nodes {
+				if n.Service.IsGateway() {
+					svcName := n.Service.CompoundServiceName()
+					idx, gatewayServices, err := state.GatewayServices(ws, svcName.Name, &svcName.EnterpriseMeta)
+					if err != nil {
+						return err
+					}
+
+					if idx > reply.Index {
+						reply.Index = idx
+					}
+					nodes[i].GatewayServices = gatewayServices
+				}
+			}
+
 			return nil
 		})
 }
@@ -178,10 +193,10 @@ func (m *Internal) GatewayServiceDump(args *structs.ServiceSpecificRequest, repl
 				}
 				for _, n := range instances {
 					svc := structs.ServiceInfo{
-						Node:           n.Node,
-						Service:        n.Service,
-						Checks:         n.Checks,
-						GatewayService: gs,
+						Node:            n.Node,
+						Service:         n.Service,
+						Checks:          n.Checks,
+						GatewayServices: structs.GatewayServices{gs},
 					}
 					result = append(result, &svc)
 				}
@@ -189,7 +204,7 @@ func (m *Internal) GatewayServiceDump(args *structs.ServiceSpecificRequest, repl
 				// Ensure we store the gateway <-> service mapping even if there are no instances of the service
 				if len(instances) == 0 {
 					svc := structs.ServiceInfo{
-						GatewayService: gs,
+						GatewayServices: structs.GatewayServices{gs},
 					}
 					result = append(result, &svc)
 				}
